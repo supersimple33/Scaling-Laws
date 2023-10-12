@@ -1,0 +1,13 @@
+name: /Users/addisonhanrattie/Documents/Scaling-Laws/.conda
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pylint
+  - evaluate
+  - transformers
+  - pytorch
+  - torchvision
+  - scipy
+  - scikit-learn
+prefix: /Users/addisonhanrattie/Documents/Scaling-Laws/.conda
