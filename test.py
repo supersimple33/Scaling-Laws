@@ -1,22 +1,19 @@
 import numpy as np
-
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-import evaluate
 from datasets import load_dataset
+from BetterPerplexity import Perplexity
 
-# Load a dataset and a transformer and then test how well the transformer performs on the dataset (there should be no training)
+perplexity = Perplexity()
+print(perplexity)
 
-dataset = load_dataset("oscar", "unshuffled_deduplicated_af")["train"].shuffle(seed=42).select(range(10)).select_columns("text")
+# C4 Dataset
+dataset = load_dataset("c4", "en", split="validation", streaming=True).shuffle(seed=42*42).take(500).select_columns("text")
+dataset : list[str] = np.reshape(np.array([x["text"] for x in dataset]), (-1)) # MARK: the last number is batches
 
-tokenizer = AutoTokenizer.from_pretrained("cerebras/Cerebras-GPT-111M")
-model = AutoModelForCausalLM.from_pretrained("cerebras/Cerebras-GPT-111M")
-
-pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)
-
-
-module = evaluate.load("perplexity")
-
-evaluator = evaluate.evaluator("text-generation") # BERT
-
-test = evaluator.compute(pipeline, dataset, metric="perplexity")
-print(test)
+# NOTE: Add start token can be false for C4 but should be true for ORCA
+# perplexities = []
+# for i in range(len(dataset)):
+# 	batch = dataset[i]
+# 	perplexity.add_batch(predictions=batch)
+result = perplexity.compute(predictions=dataset, model_id="EleutherAI/pythia-70m", device="mps", batch_size=8) #predictions=None, model_id=model, add_start_token=False, device="mps"
+# perplexities.append(result["mean_perplexity"]) # NOTE: we could also take into account mean perplexities
+print(result)
