@@ -63,7 +63,7 @@ class Perplexity(evaluate.Metric):
             
             with torch.no_grad():
                 outputs = pipe(predictions[start_index:end_index], return_tensors=True)
-                for output in outputs:
+                for output in outputs: # NOTE: we could probably do all this in parallel
                     out_logits = output["logits"]
                     labels = output["labels"]
                     attn_mask = output["attention_mask"]
@@ -73,11 +73,14 @@ class Perplexity(evaluate.Metric):
                     shift_attention_mask_batch = attn_mask[..., 1:].contiguous()
                     
                     loss = loss_fct(shift_logits.transpose(1, 2), shift_labels)
+                    relevant_loss = ((loss * shift_attention_mask_batch).sum(1)).to(dtype=torch.double)
+                    assert not torch.isinf(relevant_loss), "relevant loss is inf"
 
                     perplexity_batch = torch.exp(
-                        (loss * shift_attention_mask_batch).sum(1)
-                        / shift_attention_mask_batch.sum(1)
+                        relevant_loss
+                        / shift_attention_mask_batch.sum(1),
                     )
+                    assert not torch.isinf(perplexity_batch), "perplexity is inf"
                     # REVIEW: we could also do median here instead of mean
 
                     ppls += perplexity_batch.tolist()
