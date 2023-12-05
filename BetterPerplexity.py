@@ -2,7 +2,7 @@ import datasets
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import pipeline
 
 import evaluate
 from evaluate import logging
@@ -42,7 +42,7 @@ class Perplexity(evaluate.Metric):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         
         pipe = pipeline(
-            "custom", # NOTE: requires pipeline fix add: custom_tasks = {"custom": {"impl": pipeline_class, "pt": (), "tf": ()}}
+            "custom", # NOTE: requires pipeline fix add: custom_tasks = {"custom": {"impl": pipeline_class, "pt": ("AutoModelForCausalLM",), "tf": ()}}
             model=model_id,
             tokenizer=tokenizer_id,
             framework="pt",
