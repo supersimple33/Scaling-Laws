@@ -53,7 +53,8 @@ class Perplexity(evaluate.Metric):
         if pipe.tokenizer.pad_token_id is None:
             pipe.tokenizer.pad_token_id = pipe.model.config.eos_token_id
         else:
-            raise ValueError("follow up")
+            pass # TODO: investigate over here
+            # raise ValueError("follow up")
         
         ppls = []
         loss_fct = CrossEntropyLoss(reduction="none")

@@ -1,11 +1,15 @@
 import numpy as np
 import pickle
 from datasets import load_dataset
-from BetterPerplexity import Perplexity
+from transformers import LlamaForCausalLM, LlamaTokenizer
+
+from BetterPerplexity import BetterPerplexity
+from QuestionAnswerPerplexity import QAPerplexity
 
 import timeit
 
 PULL_C4 = False
+USE_ORCA = False
 
 perplexity = Perplexity()
 print(perplexity)
@@ -21,10 +25,23 @@ else:
     with open('c4.pkl', 'rb') as f:
         dataset = pickle.load(f)
 
-dataset = dataset[0:1000] # bad actors at # 68 gives 73920 and 566 gives
 
-# NOTE: Batch makes no difference in time on my laptop but it may for you
-result = perplexity.compute(predictions=dataset, model_id="EleutherAI/pythia-160m", device="mps", batch_size=2) #predictions=None, model_id=model, add_start_token=False, device="mps"
+model_id = "openlm-research/open_llama_3b"
+tokenizer_id = None # NOTE: this should be none for almost all models
+
+# Uncomment this code to setup llama, you have to manually set where the model lives
+# tokenizer_id = LlamaTokenizer.from_pretrained("path here")
+# model_id = LlamaForCausalLM.from_pretrained("path here")
+
+model_id = "openlm-research/open_llama_3b"
+tokenizer_id = None # NOTE: this should be none for almost all models
+
+# NOTE: Batch makes no difference since most sentences are > 16 tokens
+if USE_ORCA:
+	result = perplexity.compute(predictions=answers, prompt=questions, model_id=model_id, tokenizer_id=tokenizer_id, device="mps", batch_size=1) #predictions=None, model_id=model, add_start_token=False, device="mps"
+else:
+    # cereb error line 810
+	result = perplexity.compute(predictions=dataset, model_id=model_id, tokenizer_id=tokenizer_id, device="mps", batch_size=1) #predictions=None, model_id=model, add_start_token=False, device="mps"
 
 # perplexities.append(result["mean_perplexity"]) # NOTE: we could also take into account mean perplexities
 print(result)
