@@ -7,7 +7,7 @@ from transformers import pipeline
 import evaluate
 from evaluate import logging
 
-from TextGenerationWithLogits import TextGenerationWithLogits
+from QuestionAnswerWithLogits import QuestionAnswerWithLogits
 
 _CITATION = """HELLO"""
 
@@ -16,7 +16,7 @@ _DESCRIPTION = """LOREM IPSUM"""
 _KWARGS_DESCRIPTION = """DW"""
 
 @evaluate.utils.file_utils.add_start_docstrings(_DESCRIPTION, _KWARGS_DESCRIPTION)
-class BetterPerplexity(evaluate.Metric):
+class QuestionAnswerPerplexity(evaluate.Metric):
     def _info(self):
         return evaluate.MetricInfo(
             module_type="metric",
@@ -32,7 +32,7 @@ class BetterPerplexity(evaluate.Metric):
         )
         
     def _compute(
-        self, predictions, model_id, tokenizer_id = None, batch_size: int = 16, device=None, # add_start_token = True, max_length=None
+        self, predictions, prompts, model_id, tokenizer_id = None, batch_size: int = 16, device=None, # add_start_token = True, max_length=None
     ):
         if device is not None:
             assert device in ["gpu", "cpu", "cuda", "mps"], "device should be either gpu or cpu."
@@ -48,8 +48,8 @@ class BetterPerplexity(evaluate.Metric):
             framework="pt",
             revision=None, # NOTE: WE CAN GRAB CHECKPOINTS HERE
             device=device,
-            batch_size=batch_size, # MARK: testudo
-            pipeline_class = TextGenerationWithLogits
+            batch_size=batch_size,
+            pipeline_class = QuestionAnswerWithLogits
         )
         if pipe.tokenizer.pad_token_id is None:
             pipe.tokenizer.pad_token_id = pipe.model.config.eos_token_id
@@ -64,7 +64,14 @@ class BetterPerplexity(evaluate.Metric):
             end_index = min(start_index + batch_size, len(predictions))
             
             with torch.no_grad():
-                outputs = pipe(predictions[start_index:end_index], return_tensors=True)
+                strings = [prompts[i] + " " + predictions[i] for i in range(start_index, end_index)]
+                mappings = pipe.tokenizer(prompts[start_index:end_index], return_tensors="pt", padding=True, truncation=True, return_offsets_mapping=False)#["offset_mapping"]
+                
+                answer_starts = torch.argmax(torch.nonzero(mappings["attention_mask"]), dim=0)[1:] # NOTE: answers start with this token number
+                
+                assert batch_size == 1, "batch size should be 1"
+                # FIXME: tokenizes twice (inefficient) and does more forward than necessary, this should be done in QAWithLogits
+                outputs = pipe(strings, return_tensors=True)
                 for output in outputs: # NOTE: we could probably do all this in parallel
                     out_logits = output["logits"]
                     labels = output["labels"]
@@ -75,12 +82,15 @@ class BetterPerplexity(evaluate.Metric):
                     shift_attention_mask_batch = attn_mask[..., 1:].contiguous()
                     
                     loss = loss_fct(shift_logits.transpose(1, 2), shift_labels)
-                    relevant_loss = ((loss * shift_attention_mask_batch).sum(1)).to(dtype=torch.double)
+                    
+                    answer_mask = torch.Tensor(np.concatenate((np.zeros(answer_starts[0] - 1), np.ones(shift_logits.shape[1] - answer_starts[0] + 1))))
+                    
+                    relevant_loss = ((loss * shift_attention_mask_batch * answer_mask).sum(1)).to(dtype=torch.double)
                     assert not torch.isinf(relevant_loss), "relevant loss is inf"
 
                     perplexity_batch = torch.exp(
                         relevant_loss
-                        / shift_attention_mask_batch.sum(1),
+                        / (answer_mask * shift_attention_mask_batch).sum(1),
                     )
                     assert not torch.isinf(perplexity_batch), "perplexity is inf"
                     # REVIEW: we could also do median here instead of mean
