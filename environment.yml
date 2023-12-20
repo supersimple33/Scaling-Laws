@@ -1,13 +1,17 @@
 name: /Users/addisonhanrattie/Documents/Scaling-Laws/.conda
 channels:
+  - conda-forge
   - defaults
 dependencies:
-  - python=3.11
+  - python=3.12
   - pylint
   - evaluate
+  - tokenizers>=0.13.3
   - transformers
   - pytorch
   - torchvision
   - scipy
   - scikit-learn
+  - sentencepiece
+  - protobuf
 prefix: /Users/addisonhanrattie/Documents/Scaling-Laws/.conda
