@@ -35,7 +35,7 @@ class QuestionAnswerPerplexity(evaluate.Metric):
         self, predictions, prompts, model_id, tokenizer_id = None, batch_size: int = 16, device=None, # add_start_token = True, max_length=None
     ):
         if device is not None:
-            assert device in ["gpu", "cpu", "cuda", "mps"], "device should be either gpu or cpu."
+            assert device in ["gpu", "cpu", "cuda", "mps"], "device should be either gpu or cpu or mps."
             if device == "gpu":
                 device = "cuda"
         else:
@@ -54,21 +54,46 @@ class QuestionAnswerPerplexity(evaluate.Metric):
         if pipe.tokenizer.pad_token_id is None:
             pipe.tokenizer.pad_token_id = pipe.model.config.eos_token_id
         else:
-            pass # TODO: investigate over here
-            # raise ValueError("follow up")
+            pass # TODO: investigate over here, however this is almost never hit
+            raise ValueError("follow up")
         
         ppls = []
         loss_fct = CrossEntropyLoss(reduction="none")
         
+        # MARK: Main Loop of predictions
         for start_index in logging.tqdm(range(0, len(predictions), batch_size)):
-            end_index = min(start_index + batch_size, len(predictions))
+            end_index = min(start_index + batch_size, len(predictions)) # get the last problem to be calculated
             
-            with torch.no_grad():
-                strings = [prompts[i] + " " + predictions[i] for i in range(start_index, end_index)]
-                mappings = pipe.tokenizer(prompts[start_index:end_index], return_tensors="pt", padding=True, truncation=True, return_offsets_mapping=False)#["offset_mapping"]
+            with torch.no_grad(): # we aren't training so we dont need gradients
+                # To get the actual feed forwards combine prompts with their predictions
+                strings = [prompts[i] + predictions[i] for i in range(start_index, end_index)]# + " " +
+                mappings = pipe.tokenizer(
+                    strings, # prompts[start_index:end_index], 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True, 
+                    return_offsets_mapping=True, # We want to ensure the tokenization does not mix parts of the answer with the prompt
+                    return_overflowing_tokens=True # There should be no overflows if so raise error
+                )
+                answer_starts = [-1] * len(strings)
                 
-                answer_starts = torch.argmax(torch.nonzero(mappings["attention_mask"]), dim=0)[1:] # NOTE: answers start with this token number
+                # TESTING: Check that the answer starts with a space and the question does not
+                for i in range(len(strings)):
+                    assert not prompts[i + start_index][-1].isspace(), "prompt should not end with a space"
+                    assert predictions[i + start_index][0].isspace(), "answer should start with a space"
                 
+                # TESTING: Check no tokens were truncated (this should never happen)
+                if mappings.get("overflowing_tokens", 0) != 0:
+                    raise ValueError("overflowing tokens should be empty")
+                
+                # TESTING: Check that the tokenization did not mix   
+                nonzero_attention = mappings["attention_mask"].nonzero()
+                active_token_lengths = [nonzero_attention[nonzero_attention[:,0]==i][:,1].max().item() + 1 for i in nonzero_attention[:,0].unique()]
+                for i in range(len(strings)):
+                    token_ends = [x[1].item() for x in mappings["offset_mapping"][i][:active_token_lengths[0]]]
+                    prompt_end = token_ends.index(len(prompts[i + start_index])) # Will raise error if prompt and answer are mixed
+                    answer_starts[i] = prompt_end + 1
+                                
                 assert batch_size == 1, "batch size should be 1"
                 # FIXME: tokenizes twice (inefficient) and does more forward than necessary, this should be done in QAWithLogits
                 outputs = pipe(strings, return_tensors=True)
@@ -83,7 +108,8 @@ class QuestionAnswerPerplexity(evaluate.Metric):
                     
                     loss = loss_fct(shift_logits.transpose(1, 2), shift_labels)
                     
-                    answer_mask = torch.Tensor(np.concatenate((np.zeros(answer_starts[0] - 1), np.ones(shift_logits.shape[1] - answer_starts[0] + 1))))
+                    # mask_length = np.zeros(len(range(0, answer_starts[0] - 1)))
+                    answer_mask = torch.Tensor(np.concatenate((np.zeros(answer_starts[0]), np.ones(shift_logits.shape[1] - answer_starts[0]))))
                     
                     relevant_loss = ((loss * shift_attention_mask_batch * answer_mask).sum(1)).to(dtype=torch.double)
                     assert not torch.isinf(relevant_loss), "relevant loss is inf"

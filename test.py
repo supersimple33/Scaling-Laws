@@ -8,9 +8,12 @@ from QuestionAnswerPerplexity import QuestionAnswerPerplexity
 
 import timeit
 
+# MARK: Setup
+
 PULL_DATA = False
 USE_ORCA = True
 
+# MARK: Setup Dataset and download if needed
 
 if USE_ORCA:
     perplexity = QuestionAnswerPerplexity()
@@ -33,7 +36,7 @@ else:
     perplexity = BetterPerplexity()
 
     if PULL_DATA:
-        dataset = load_dataset("c4", "en", split="validation", streaming=True)
+        dataset = load_dataset("c4", "en", split="validation", streaming=True) # TODO: sort by tokenization length for small speedup
         dataset = dataset.shuffle(seed=42*42, buffer_size=dataset.dataset_size).take(5000).select_columns("text") # buffer_size and seed being set corrcetly is super important
         dataset : list[str] = np.reshape(np.array(sorted([x["text"] for x in dataset], key=len)), (-1)) # MARK: the last number is batches
         with open('c4.pkl', 'wb') as f:
