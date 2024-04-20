@@ -81,6 +81,7 @@ class QuestionAnswerPerplexity(evaluate.Metric):
                 for i in range(len(strings)):
                     assert not prompts[i + start_index][-1].isspace(), "prompt should not end with a space"
                     assert predictions[i + start_index][0].isspace(), "answer should start with a space"
+                    assert not predictions[i + start_index].isspace(), "answer should not be blank"
                 
                 # TESTING: Check no tokens were truncated (this should never happen)
                 if mappings.get("overflowing_tokens", 0) != 0:
@@ -91,11 +92,12 @@ class QuestionAnswerPerplexity(evaluate.Metric):
                 active_token_lengths = [nonzero_attention[nonzero_attention[:,0]==i][:,1].max().item() + 1 for i in nonzero_attention[:,0].unique()]
                 for i in range(len(strings)):
                     token_ends = [x[1].item() for x in mappings["offset_mapping"][i][:active_token_lengths[0]]]
-                    prompt_end = token_ends.index(len(prompts[i + start_index])) # Will raise error if prompt and answer are mixed
-                    answer_starts[i] = prompt_end + 1
+                    prompt_end = token_ends.index(len(prompts[i + start_index])) # Will raise error if prompt and answer are mixed (ie we did not end on the length of the prompt)
+                    # Note: We don't need to subtract 1 from len because of how mappings work with mappings work
+                    answer_starts[i] = prompt_end + 1 # Select the token after the one which ends the prompt
                                 
-                assert batch_size == 1, "batch size should be 1"
-                # FIXME: tokenizes twice (inefficient) and does more forward than necessary, this should be done in QAWithLogits
+                assert batch_size == 1, "batch size should be 1 for now"
+                # FIXME: tokenizes twice (inefficient) and does more forward than necessary, add in pipe.postprocesss(pipe.forward())
                 outputs = pipe(strings, return_tensors=True)
                 for output in outputs: # NOTE: we could probably do all this in parallel
                     out_logits = output["logits"]
@@ -106,13 +108,21 @@ class QuestionAnswerPerplexity(evaluate.Metric):
                     shift_labels = labels[..., 1:].contiguous()
                     shift_attention_mask_batch = attn_mask[..., 1:].contiguous()
                     
+                    # TESTING: Ensure we have a loss for each token but the first one
+                    assert (shift_logits.shape[1] == mappings["input_ids"].shape[1] - 1 
+                            and torch.all(mappings['input_ids'][:,1:] == shift_labels)), "bad loss transfer"
+                    
                     loss = loss_fct(shift_logits.transpose(1, 2), shift_labels)
                     
                     # mask_length = np.zeros(len(range(0, answer_starts[0] - 1)))
-                    answer_mask = torch.Tensor(np.concatenate((np.zeros(answer_starts[0]), np.ones(shift_logits.shape[1] - answer_starts[0]))))
+                    answer_mask = torch.Tensor(np.concatenate((np.zeros(answer_starts[0] - 1), np.ones(shift_logits.shape[1] + 1 - answer_starts[0])))) # TODO: answer_starts should not be sub 0 in future
                     
                     relevant_loss = ((loss * shift_attention_mask_batch * answer_mask).sum(1)).to(dtype=torch.double)
-                    assert not torch.isinf(relevant_loss), "relevant loss is inf"
+                    # TESTING: If we get infinite loss something went wrong
+                    assert not torch.isinf(relevant_loss) and not torch.isnan(relevant_loss), "relevant loss is inf"
+                    
+                    # TESTING: Ensure that we have a non-zero number of answer tokens
+                    assert (answer_mask * shift_attention_mask_batch).sum(1) > 0, ""
 
                     perplexity_batch = torch.exp(
                         relevant_loss
@@ -123,4 +133,4 @@ class QuestionAnswerPerplexity(evaluate.Metric):
 
                     ppls += perplexity_batch.tolist()
         
-        return {"perplexities": ppls, "mean_perplexity": np.mean(ppls)}
+        return {"perplexities": ppls, "mean_perplexity": np.mean(ppls), "median_perplexity": sorted(ppls)[len(ppls) // 2]}

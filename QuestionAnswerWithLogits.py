@@ -2,6 +2,7 @@ from transformers import TextGenerationPipeline
 
 class QuestionAnswerWithLogits(TextGenerationPipeline):
     def _forward(self, model_inputs, **generate_kwargs):
+        # FIXME: we don't actually need to compute the perplexities on the prompt tokens but the cost is pretty small since we're on gpu
         input_ids = model_inputs["input_ids"]
         attention_mask = model_inputs.get("attention_mask", None)
         # Allow empty prompts
@@ -11,7 +12,7 @@ class QuestionAnswerWithLogits(TextGenerationPipeline):
             in_b = 1
         else:
             in_b = input_ids.shape[0]
-        prompt_text = model_inputs.pop("prompt_text")
+        # prompt_text = model_inputs.pop("prompt_text")
 
         # If there is a prefix, we may need to adjust the generation length. Do so without permanently modifying
         # generate_kwargs, as some of the parameterization may come from the initialization of the pipeline.
