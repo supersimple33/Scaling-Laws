@@ -55,9 +55,9 @@ class BetterPerplexity(evaluate.Metric):
             pipe.tokenizer.pad_token_id = pipe.model.config.eos_token_id
         else:
             pass # TODO: investigate over here
-            # raise ValueError("follow up")
+            raise ValueError("follow up")
         
-        ppls = []
+        ppls = [0.0] * len(predictions)
         loss_fct = CrossEntropyLoss(reduction="none")
         
         for start_index in logging.tqdm(range(0, len(predictions), batch_size)):
@@ -85,6 +85,12 @@ class BetterPerplexity(evaluate.Metric):
                     assert not torch.isinf(perplexity_batch), "perplexity is inf"
                     # REVIEW: we could also do median here instead of mean
 
-                    ppls += perplexity_batch.tolist()
+                    ppls[start_index:end_index] = perplexity_batch.tolist()
+                    
+            
+            # if start_index > 1500:
+            #     snapshot = tracemalloc.take_snapshot() 
+            #     top_stats = snapshot.statistics('lineno')
+            #     print()
         
         return {"perplexities": ppls, "mean_perplexity": np.mean(ppls)}

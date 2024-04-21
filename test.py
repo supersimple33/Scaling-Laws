@@ -11,7 +11,7 @@ import timeit
 # MARK: Setup
 
 PULL_DATA = False
-USE_ORCA = True
+USE_ORCA = False
 
 # MARK: Setup Dataset and download\f if needed
 
@@ -35,6 +35,7 @@ if USE_ORCA:
 else:
     # C4 Dataset: loads 5000 elements off the 42^2 seed
     perplexity = BetterPerplexity()
+    questions, answers = [], []
 
     if PULL_DATA:
         dataset = load_dataset("c4", "en", split="validation", streaming=True) # TODO: sort by tokenization length for small speedup
@@ -58,20 +59,22 @@ answers = answers[OFFSET:OFFSET+TAKE]
 
 # questions = [x + " Answer:" for x in questions] # NOTE: Do we want to have a Answer: part to signal start of the answer
 
-model_id = "EleutherAI/pythia-160m"
+model_id = "EleutherAI/pythia-70m"
 tokenizer_id = None # NOTE: this should be none for almost all models
 
 # Uncomment this code to setup llama, you have to manually set where the model lives
 # tokenizer_id = LlamaTokenizer.from_pretrained("path here")
 # model_id = LlamaForCausalLM.from_pretrained("path here")
 
+# tracemalloc.start() 
 # NOTE: Batch makes no difference since most sentences are > 16 tokens
 if USE_ORCA:
     result = perplexity.compute(predictions=answers, prompts=questions, model_id=model_id, tokenizer_id=tokenizer_id, device="mps", batch_size=1) #predictions=None, model_id=model, add_start_token=False, device="mps"
 else:
-    result = perplexity.compute(predictions=dataset, model_id=model_id, tokenizer_id=tokenizer_id, device="cpu", batch_size=1) #predictions=None, model_id=model, add_start_token=False, device="mps"
+    result = perplexity.compute(predictions=dataset, model_id=model_id, tokenizer_id=tokenizer_id, device="cpu", batch_size=16) #predictions=None, model_id=model, add_start_token=False, device="mps"
 
 # perplexities.append(result["mean_perplexity"]) # NOTE: we could also take into account mean perplexities
+result["median_perplexity"] = np.median(result['perplexities'])
 print(result['perplexities'])
 print("median", result["median_perplexity"])
 print("mean", result["mean_perplexity"])

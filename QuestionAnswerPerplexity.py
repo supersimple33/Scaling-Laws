@@ -133,4 +133,4 @@ class QuestionAnswerPerplexity(evaluate.Metric):
 
                     ppls += perplexity_batch.tolist()
         
-        return {"perplexities": ppls, "mean_perplexity": np.mean(ppls), "median_perplexity": sorted(ppls)[len(ppls) // 2]}
+        return {"perplexities": ppls, "mean_perplexity": np.mean(ppls)} #, "median_perplexity": sorted(ppls)[len(ppls) // 2]
