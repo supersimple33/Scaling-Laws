@@ -13,7 +13,7 @@ import timeit
 PULL_DATA = False
 USE_ORCA = True
 
-# MARK: Setup Dataset and download if needed
+# MARK: Setup Dataset and download\f if needed
 
 if USE_ORCA:
     perplexity = QuestionAnswerPerplexity()
@@ -21,8 +21,9 @@ if USE_ORCA:
     if PULL_DATA:
         dataset = load_dataset("Open-Orca/OpenOrca", split="train", streaming=True)
         dataset = dataset.shuffle(seed=42*42, buffer_size=dataset.dataset_size).take(5000).select_columns(["system_prompt", "question", "response"])
-        dataset = [(x["system_prompt"] + " Question: " + x["question"] + " Answer: ", x["response"]) for x in dataset]
-        questions = [x[0] for x in dataset]
+        dataset = [((x["system_prompt"] + " Prompt: " + x["question"]).rstrip() , " " + x["response"]) for x in dataset] # TODO: sort by tokenization length for small speedup
+        # REVIEW: IMPORTANT DO WE WANT THE SPACE ABOVE ????????? # Take away spaces from the right of the question using rstrip
+        questions = [x[0]for x in dataset] 
         answers = [x[1] for x in dataset]
         with open('orca.pkl', 'wb') as f:
             pickle.dump(dataset, f)
@@ -45,11 +46,19 @@ else:
         with open('c4.pkl', 'rb') as f:
             dataset = pickle.load(f)
 
-dataset = dataset[0:100]
-questions = questions[0:100]
-answers = answers[0:100]
 
-model_id = "EleutherAI/pythia-410m"
+# MARK: - SETUP THE DATA        (orca 82 is single token answer)
+TAKE = 5000
+OFFSET = 0
+dataset = dataset[OFFSET:OFFSET+TAKE]
+questions = questions[OFFSET:OFFSET+TAKE]
+answers = answers[OFFSET:OFFSET+TAKE]
+
+# questions, answers = ["abc def"], [" ab"]
+
+# questions = [x + " Answer:" for x in questions] # NOTE: Do we want to have a Answer: part to signal start of the answer
+
+model_id = "EleutherAI/pythia-160m"
 tokenizer_id = None # NOTE: this should be none for almost all models
 
 # Uncomment this code to setup llama, you have to manually set where the model lives
@@ -63,7 +72,13 @@ else:
     result = perplexity.compute(predictions=dataset, model_id=model_id, tokenizer_id=tokenizer_id, device="cpu", batch_size=1) #predictions=None, model_id=model, add_start_token=False, device="mps"
 
 # perplexities.append(result["mean_perplexity"]) # NOTE: we could also take into account mean perplexities
-print(result)
-print("median", result["perplexities"][len(result["perplexities"]) // 2])
+print(result['perplexities'])
+print("median", result["median_perplexity"])
 print("mean", result["mean_perplexity"])
-print()
+
+# MARK: Save the results from this run
+with open(f"Results_{"ORCA" if USE_ORCA else "C4"}/{model_id.split("/")[-1]}.pkl", 'wb') as f:
+    if TAKE != 5000:
+        print("are you sure you wan to save?")
+        input()
+    pickle.dump(result, f)
